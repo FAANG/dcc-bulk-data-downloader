@@ -21,7 +21,7 @@ def authorize(user, pwd):
     return False
 
 def fetch_study_files(study_id, token):
-    url = f"https://api.faang.org/private_portal/file/?size=10&from_=0&search={study_id}"
+    url = f"https://api.faang.org/private_portal/file/?size=10000&from_=0&search={study_id}"
     res = requests.get(url, headers={"Authorization": f"jwt {token}"})
     if res.status_code == 200:
         data = json.loads(res.content)['hits']['hits']
