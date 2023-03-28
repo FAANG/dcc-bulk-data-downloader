@@ -9,6 +9,17 @@ import requests
 import warnings
 import multiprocessing
 
+def authorize(user, pwd):
+    url = "https://api.faang.org/api-token-auth/"
+    payload = {
+        "username": user,
+        "password": pwd
+    }
+    res = requests.post(url, json=payload)
+    if res.status_code == 200:
+        return json.loads(res.content.decode("utf-8"))["token"]
+    return False
+
 def create_directory(download_location, study_id):
     try:
         if (download_location == '' or download_location is None) or os.path.exists(download_location) == False:
@@ -21,23 +32,27 @@ def create_directory(download_location, study_id):
     except:
         return False
 
-def authorize(user, pwd):
-    url = "https://api.faang.org/api-token-auth/"
-    payload = {
-        "username": user,
-        "password": pwd
-    }
-    res = requests.post(url, json=payload)
-    if res.status_code == 200:
-        return json.loads(res.content.decode("utf-8"))["token"]
-    return False
+def download_process(filename, url, output_path):
+    print(f"\nDownloading file {filename}")
+    wget.download(url, out=output_path)
 
-def fetch_study_files(mode, study_id, path, token=None):
+def downloader(download_list):
+    # download data with multiprocessing
+    cpus = multiprocessing.cpu_count()
+    max_pool_size = 8
+    pool = multiprocessing.Pool(cpus if cpus < max_pool_size else max_pool_size)
+    for url, filename, path in download_list:
+        pool.apply_async(download_process, args=(filename, url, path))
+    pool.close()
+    pool.join()
+    print("Download complete")
+
+def get_experiment_files(mode, study_id, path, token=None):
     if mode == 'private':
-        url = f"https://api.faang.org/private_portal/file/?size=10&from_=0&search={study_id}"
+        url = f"https://api.faang.org/private_portal/file/?size=10000&from_=0&search={study_id}"
         res = requests.get(url, headers={"Authorization": f"jwt {token}"})
     else:
-        url = f"https://api.faang.org/data/file/_search/?size=10&from_=0&search={study_id}"
+        url = f"https://api.faang.org/data/file/_search/?size=10000&from_=0&search={study_id}"
         res = requests.get(url)
     if res.status_code == 200:
         data = json.loads(res.content)['hits']['hits']
@@ -47,14 +62,47 @@ def fetch_study_files(mode, study_id, path, token=None):
             filename = file['_source']['name']
             file_path = os.path.join(path, filename)
             download_list.append([url, filename, file_path])
-        return download_list
-    return False
+        if len(download_list):
+            print(f"Downloading {len(download_list)} experiment files...\n")
+            downloader(download_list)
+        else:
+            print(f"Study {study_id} has no experiment files")
+    else:
+        print(f"Study {study_id} has no experiment files")
 
-def download_process(filename, url, output_path):
-    print(f"\nDownloading file {filename}")
-    wget.download(url, out=output_path)
+def get_analysis_files(mode, study_id, path, token=None):
+    if mode == 'private':
+        url = f"https://api.faang.org/private_portal/analysis/?size=10000&from_=0&search={study_id}"
+        res = requests.get(url, headers={"Authorization": f"jwt {token}"})
+    else:
+        url = f"https://api.faang.org/data/analysis/_search/?size=10000&from_=0&search={study_id}"
+        res = requests.get(url)
+    if res.status_code == 200:
+        data = json.loads(res.content)['hits']['hits']
+        download_list = []
+        for analysis in data:
+            if 'files' in analysis['_source']:
+                analysis_id = analysis['_source']['accession']
+                path = os.path.join(path, analysis_id)
+                try:
+                    os.makedirs(path, exist_ok=True)
+                except:
+                    print(f"Directory for analysis {analysis_id} can not be created") 
+                    sys.exit(0)
+                for file in analysis['_source']['files']: 
+                    url = f"ftp://{file['url']}"
+                    filename = file['name']
+                    file_path = os.path.join(path, filename)
+                    download_list.append([url, filename, file_path])
+        if len(download_list):
+            print(f"Downloading {len(download_list)} analysis files...\n")
+            downloader(download_list)
+        else:
+            print(f"Study {study_id} has no analysis files")
+    else:
+        print(f"Study {study_id} has no analysis files")
 
-def main(mode, study_id, download_location):
+def main(mode, study_id, data_type, download_location):
     # get username and password if fetching private data
     if mode == 'private':
         user = input("Username: ")
@@ -69,32 +117,35 @@ def main(mode, study_id, download_location):
     # create directories
     path = create_directory(download_location, study_id)
     if not path:
-        print(f"Directory {study_id} can not be created") 
+        print(f"Directory for study {study_id} can not be created") 
         sys.exit(0)
-    # fetch requested data URLs
-    if mode == 'private':
-        download_list = fetch_study_files(mode, study_id, path, token)
+    # download requested data
+    if mode == 'public':
+        token = None
+    if data_type == 'file':
+        get_experiment_files(mode, study_id, path, token)
+    elif data_type == 'analysis':
+        get_analysis_files(mode, study_id, path, token)
     else:
-        download_list = fetch_study_files(mode, study_id, path)
-    if not download_list:
-        print(f"No experiment files found for the study {study_id}")
-        sys.exit(0)
-    # download data with multiprocessing
-    cpus = multiprocessing.cpu_count()
-    max_pool_size = 8
-    pool = multiprocessing.Pool(cpus if cpus < max_pool_size else max_pool_size)
-    for url, filename, path in download_list:
-        pool.apply_async(download_process, args=(filename, url, path))
-    pool.close()
-    pool.join()
-    print("Download complete")
-
+        get_experiment_files(mode, study_id, path, token)
+        get_analysis_files(mode, study_id, path, token)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Welcome to the Downloader Utility")
-    parser.add_argument("--mode")
+    parser.add_argument("--mode",
+                    default='public',
+                    const='public',
+                    nargs='?',
+                    choices=('public', 'private'),
+                    help='Fetch private or public data (default: %(default)s)')
     parser.add_argument("--study_id")
     parser.add_argument("--download_location")
+    parser.add_argument("--data_type",
+                    default='all',
+                    const='all',
+                    nargs='?',
+                    choices=('file', 'analysis', 'all'),
+                    help='Fetch experiment files, analysis objects, or both (default: %(default)s)')
     args = parser.parse_args()
     config = vars(args)
     warnings.filterwarnings(action='ignore')
@@ -102,4 +153,4 @@ if __name__ == "__main__":
         print("Please provide study_id parameter")
         sys.exit(0)
     else:
-        main(config["mode"], config["study_id"], config["download_location"])
+        main(config["mode"], config["study_id"], config["data_type"], config["download_location"])
