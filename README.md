@@ -24,7 +24,7 @@ python downloader.py --mode "private" --study_id "PRJEB43235" --data_type "file"
 
 * `--mode` (Required) provide value `"public"` or  `"private"` depending on the study of interest.
 * `--study_id` (Required) Accession of the study for which you wish to download files (`eg : "PRJEB43235"`).
-* `--data_type` (Optional) provide value `"file"` or  `"analysis"` or `"all"`. Option `"file"` downloads all experiment files, `"analysis"` downloads all analysis object files and `"all"` downloads both experiment and analysis files. If parameter is not provided, both experiment and analysis files are downloaded by downloaded by default.
+* `--data_type` (Optional) provide value `"file"` or  `"analysis"` or `"all"`. Option `"file"` downloads all experiment files, `"analysis"` downloads all analysis object files and `"all"` downloads both experiment and analysis files. If parameter is not provided, both experiment and analysis files are downloaded by default.
 * `--download_location` (Optional) The local path where you want to download the files (`eg: "/home/user"`). The files will be downloaded within a directory having the same name as the study_id.
 
 2. When running in `private` mode, you will be prompted for a username and password. Please enter your private portal credentials to begin the download.
@@ -49,6 +49,6 @@ docker run -it --rm -v "$PWD:/code/data" bulk-downloader:latest --mode "private"
 
 * `--mode` (Required) provide value `"public"` or  `"private"` depending on the study of interest
 * `--study_id` (Required) Accession of the study for which you wish to download files (`eg : "PRJEB43235"`)
-* `--data_type` (Optional) provide value `"file"` or  `"analysis"` or `"all"`. Option `"file"` downloads all experiment files, `"analysis"` downloads all analysis object files and `"all"` downloads both experiment and analysis files. If parameter is not provided, both experiment and analysis files are downloaded by downloaded by default.
+* `--data_type` (Optional) provide value `"file"` or  `"analysis"` or `"all"`. Option `"file"` downloads all experiment files, `"analysis"` downloads all analysis object files and `"all"` downloads both experiment and analysis files. If parameter is not provided, both experiment and analysis files are downloaded by default.
 
 4. When running in `private` mode, you will be prompted for a username and password. Please enter your private portal credentials to begin the download.
