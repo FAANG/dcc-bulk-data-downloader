@@ -33,9 +33,9 @@ def create_directory(download_location, study_id):
         return False
 
 def download_process(filename, url, output_path):
-    print(f"\nDownloading file {filename}")
+    print(f"Downloading file {filename}")
     output_path = os.path.join(output_path, filename)
-    wget.download(url, out=output_path)
+    wget.download(bar=None, url=url, out=output_path)
 
 def downloader(download_list):
     # download data with multiprocessing
@@ -66,8 +66,7 @@ def get_experiment_files(mode, study_id, path, token=None):
         for file in data:
             url = f"ftp://{file['_source']['url']}"
             filename = file['_source']['name']
-            file_path = os.path.join(path, filename)
-            download_list.append([url, filename, file_path])
+            download_list.append([url, filename, path])
         if len(download_list):
             print(f"Downloading {len(download_list)} experiment files...\n")
             downloader(download_list)
