@@ -34,6 +34,7 @@ def create_directory(download_location, study_id):
 
 def download_process(filename, url, output_path):
     print(f"\nDownloading file {filename}")
+    output_path = os.path.join(output_path, filename)
     wget.download(url, out=output_path)
 
 def downloader(download_list):
@@ -42,6 +43,11 @@ def downloader(download_list):
     max_pool_size = 8
     pool = multiprocessing.Pool(cpus if cpus < max_pool_size else max_pool_size)
     for url, filename, path in download_list:
+        try:
+            os.makedirs(path, exist_ok=True)
+        except:
+            print(f"Directory {path} can not be created") 
+            sys.exit(0)
         pool.apply_async(download_process, args=(filename, url, path))
     pool.close()
     pool.join()
@@ -83,16 +89,10 @@ def get_analysis_files(mode, study_id, path, token=None):
         for analysis in data:
             if 'files' in analysis['_source']:
                 analysis_id = analysis['_source']['accession']
-                path = os.path.join(path, analysis_id)
-                try:
-                    os.makedirs(path, exist_ok=True)
-                except:
-                    print(f"Directory for analysis {analysis_id} can not be created") 
-                    sys.exit(0)
                 for file in analysis['_source']['files']: 
                     url = f"ftp://{file['url']}"
                     filename = file['name']
-                    file_path = os.path.join(path, filename)
+                    file_path = os.path.join(path, analysis_id)
                     download_list.append([url, filename, file_path])
         if len(download_list):
             print(f"Downloading {len(download_list)} analysis files...\n")
