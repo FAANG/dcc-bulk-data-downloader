@@ -1,12 +1,12 @@
 import os
 import sys
 import json
-import wget
+import shutil
 import pathlib
 import getpass
 import argparse
 import requests
-import warnings
+import urllib.request
 import multiprocessing
 
 def authorize(user, pwd):
@@ -26,28 +26,64 @@ def create_directory(download_location, study_id):
             print("Download location not provided, using default location")
             download_location = pathlib.Path(__file__).parent.resolve()
             download_location = os.path.join(download_location, "data")
-        path = os.path.join(download_location, study_id)
+        # study_id is used as a single directory name only; never let it escape
+        path = safe_output_path(download_location, study_id)
         os.makedirs(path, exist_ok=True)
         return path
-    except:
+    except (OSError, ValueError):
         return False
 
-def download_process(filename, url, output_path):
-    print(f"Downloading file {filename}")
-    output_path = os.path.join(output_path, filename)
-    wget.download(bar=None, url=url, out=output_path)
+def safe_output_path(base_dir, *parts):
+    """Join untrusted path components onto base_dir, guaranteeing the result
+    stays inside base_dir.
+
+    Every component is reduced to its basename (stripping any directory
+    separators or traversal sequences supplied by the remote API), rejected if
+    empty/./.., and the fully resolved target is confirmed to live under the
+    resolved base directory. Raises ValueError on any unsafe input.
+    """
+    base_real = os.path.realpath(base_dir)
+    cleaned = []
+    for part in parts:
+        name = os.path.basename(str(part))
+        if name in ('', '.', '..'):
+            raise ValueError(f"unsafe path component: {part!r}")
+        cleaned.append(name)
+    target = os.path.realpath(os.path.join(base_real, *cleaned))
+    if target != base_real and os.path.commonpath([target, base_real]) != base_real:
+        raise ValueError(f"path escapes base directory: {target!r}")
+    return target
+
+def download_file(url, output_path):
+    # urllib.request handles ftp:// and https:// and, unlike the abandoned
+    # `wget` package, lets us write to a path we have already validated.
+    # HTTPS certificates are verified by default.
+    with urllib.request.urlopen(url) as response, open(output_path, 'wb') as out:
+        shutil.copyfileobj(response, out)
+
+def download_process(url, base_dir, parts):
+    try:
+        output_path = safe_output_path(base_dir, *parts)
+    except ValueError as err:
+        print(f"Skipping file with unsafe name from server: {err}")
+        return
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    except OSError:
+        print(f"Directory for {output_path} can not be created")
+        return
+    print(f"Downloading file {os.path.basename(output_path)}")
+    try:
+        download_file(url, output_path)
+    except Exception as err:
+        print(f"Failed to download {url}: {err}")
 
 def downloader(download_list, processes):
     # download data with multiprocessing
     cpus = multiprocessing.cpu_count()
     pool = multiprocessing.Pool(cpus if cpus < processes else processes)
-    for url, filename, path in download_list:
-        try:
-            os.makedirs(path, exist_ok=True)
-        except:
-            print(f"Directory {path} can not be created") 
-            sys.exit(0)
-        pool.apply_async(download_process, args=(filename, url, path))
+    for url, base_dir, parts in download_list:
+        pool.apply_async(download_process, args=(url, base_dir, parts))
     pool.close()
     pool.join()
     print("Download complete")
@@ -65,7 +101,9 @@ def get_experiment_files(mode, study_id, path, token, processes):
         for file in data:
             url = f"ftp://{file['_source']['url']}"
             filename = file['_source']['name']
-            download_list.append([url, filename, path])
+            # filename is untrusted (from the API); path containment is enforced
+            # in safe_output_path() at download time.
+            download_list.append([url, path, [filename]])
         if len(download_list):
             print(f"Downloading {len(download_list)} experiment files...\n")
             downloader(download_list, processes)
@@ -87,11 +125,12 @@ def get_analysis_files(mode, study_id, path, token, processes):
         for analysis in data:
             if 'files' in analysis['_source']:
                 analysis_id = analysis['_source']['accession']
-                for file in analysis['_source']['files']: 
+                for file in analysis['_source']['files']:
                     url = f"ftp://{file['url']}"
                     filename = file['name']
-                    file_path = os.path.join(path, analysis_id)
-                    download_list.append([url, filename, file_path])
+                    # both analysis_id and filename are untrusted; containment is
+                    # enforced in safe_output_path() at download time.
+                    download_list.append([url, path, [analysis_id, filename]])
         if len(download_list):
             print(f"Downloading {len(download_list)} analysis files...\n")
             downloader(download_list, processes)
@@ -115,7 +154,7 @@ def main(mode, study_id, data_type, download_location, processes):
     # create directories
     path = create_directory(download_location, study_id)
     if not path:
-        print(f"Directory for study {study_id} can not be created") 
+        print(f"Directory for study {study_id} can not be created")
         sys.exit(0)
     # download requested data
     if mode == 'public':
@@ -147,9 +186,15 @@ if __name__ == "__main__":
     parser.add_argument("--processes", default=8)
     args = parser.parse_args()
     config = vars(args)
-    warnings.filterwarnings(action='ignore')
     if config["study_id"] is None or config["study_id"] == '':
         print("Please provide study_id parameter")
         sys.exit(0)
     else:
-        main(config["mode"], config["study_id"], config["data_type"], config["download_location"], int(config['processes']))
+        try:
+            processes = int(config['processes'])
+        except (TypeError, ValueError):
+            print("--processes must be an integer")
+            sys.exit(0)
+        if processes < 1:
+            processes = 1
+        main(config["mode"], config["study_id"], config["data_type"], config["download_location"], processes)
